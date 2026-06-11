@@ -343,46 +343,67 @@ async function syncResults() {
   const btn = document.querySelector("#btn-sync");
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Sincronizando..."; }
   try {
-    // Intentamos directo; si falla por CORS usamos proxy
-    let res;
-    try {
-      res = await fetch(`${API_BASE}/fixtures?league=${WC_LEAGUE}&season=${WC_SEASON}&status=FT-AET-PEN`, {
-        headers: { "x-apisports-key": API_KEY, "x-rapidapi-key": API_KEY }
-      });
-    } catch(corsErr) {
-      // Fallback: proxy CORS abierto
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(`${API_BASE}/fixtures?league=${WC_LEAGUE}&season=${WC_SEASON}&status=FT-AET-PEN`)}`;
-      res = await fetch(proxyUrl, { headers: { "x-apisports-key": API_KEY } });
-    }
+    const res  = await fetch("/.netlify/functions/sync");
     const data = await res.json();
-    if (data.errors && Object.keys(data.errors).length) { toast("❌ Error de API: " + JSON.stringify(data.errors), false); return; }
-    const fixtures = data.response || [];
-    if (!fixtures.length) { toast("ℹ️ No hay partidos finalizados aún"); return; }
-    const patch = {}; let count = 0;
-    for (const fix of fixtures) {
-      const homeEs = apiTeamName(fix.teams.home.name);
-      const awayEs = apiTeamName(fix.teams.away.name);
-      const found  = findMid(homeEs, awayEs);
-      if (!found) continue;
-      const { mid, swapped } = found;
-      const goals = getGoals90(fix);
-      const ph    = getMatchPhase(mid);
-      const h = swapped ? goals.away : goals.home;
-      const a = swapped ? goals.home : goals.away;
-      if (ph === 0) {
-        patch[`results/${mid}`] = { home: h, away: a, qualified: null };
-      } else {
-        const extras = wentToExtras(fix);
-        const teamH  = swapped ? awayEs : homeEs;
-        const teamA  = swapped ? homeEs : awayEs;
-        const qual   = getQualified(fix, teamH, teamA);
-        patch[`results/${mid}`] = { home: h, away: a, penales: extras, qualified: qual };
+    if (data.error) { toast("❌ Error: " + data.error, false); return; }
+
+    // openfootball format: { rounds: [ { matches: [ { team1, team2, score, group } ] } ] }
+    const rounds = data.rounds || [];
+    const patch  = {};
+    let count    = 0;
+
+    for (const round of rounds) {
+      for (const match of (round.matches || [])) {
+        // Solo partidos con resultado
+        if (!match.score || !match.score.ft) continue;
+
+        const homeEs = apiTeamName(match.team1?.name || "");
+        const awayEs = apiTeamName(match.team2?.name || "");
+        if (!homeEs || !awayEs) continue;
+
+        const found = findMid(homeEs, awayEs);
+        if (!found) continue;
+
+        const { mid, swapped } = found;
+        const ft = match.score.ft; // [golesLocal, golesVisitante]
+        const h  = swapped ? ft[1] : ft[0];
+        const a  = swapped ? ft[0] : ft[1];
+        const ph = getMatchPhase(mid);
+
+        if (ph === 0) {
+          // Grupos: solo goles
+          patch[`results/${mid}`] = { home: h, away: a, qualified: null };
+        } else {
+          // Eliminatorias: detectar prórroga/penales
+          // openfootball incluye score.et (extratime) y score.p (penales)
+          const hasPen = !!(match.score.p);
+          const hasET  = !!(match.score.et);
+          const extras = hasPen || hasET;
+
+          let qualified = null;
+          if (hasPen) {
+            const pen = match.score.p;
+            const ph_ = swapped ? pen[1] : pen[0];
+            const pa_ = swapped ? pen[0] : pen[1];
+            qualified  = ph_ > pa_ ? homeEs : awayEs;
+          } else if (hasET) {
+            const et  = match.score.et;
+            const eth = swapped ? et[1] : et[0];
+            const eta = swapped ? et[0] : et[1];
+            qualified = eth > eta ? homeEs : awayEs;
+          } else {
+            qualified = h > a ? homeEs : awayEs;
+          }
+
+          patch[`results/${mid}`] = { home: h, away: a, penales: extras, qualified };
+        }
+        count++;
       }
-      count++;
     }
-    if (!count) { toast("ℹ️ Ningún partido coincidió con el fixture"); return; }
+
+    if (!count) { toast("ℹ️ No hay resultados nuevos todavía"); return; }
     await fbUpdate("", patch);
-    toast(`✅ ${count} resultado${count>1?"s":""} sincronizado${count>1?"s":""}`);
+    toast(`✅ ${count} resultado${count > 1 ? "s" : ""} sincronizado${count > 1 ? "s" : ""}`);
   } catch(e) {
     console.error(e);
     toast("❌ Error: " + e.message, false);
