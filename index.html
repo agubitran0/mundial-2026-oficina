@@ -292,21 +292,62 @@ const WC_LEAGUE = 1, WC_SEASON = 2026;
 
 // Mapeo: nombre en inglés (API) → nombre en español (app)
 const API_TEAM_MAP = {
-  "Mexico":"México","South Africa":"Sudáfrica","South Korea":"República de Corea",
-  "Czech Republic":"República Checa","Canada":"Canadá","Bosnia":"Bosnia y Herzegovina",
-  "Bosnia and Herzegovina":"Bosnia y Herzegovina","Qatar":"Catar","Switzerland":"Suiza",
-  "Brazil":"Brasil","Morocco":"Marruecos","Haiti":"Haití","Scotland":"Escocia",
-  "USA":"Estados Unidos","United States":"Estados Unidos","Paraguay":"Paraguay",
-  "Australia":"Australia","Turkey":"Turquía","Germany":"Alemania","Curacao":"Curazao",
-  "Ivory Coast":"Costa de Marfil","Cote d'Ivoire":"Costa de Marfil","Ecuador":"Ecuador",
-  "Netherlands":"Países Bajos","Japan":"Japón","Sweden":"Suecia","Tunisia":"Túnez",
-  "Belgium":"Bélgica","Egypt":"Egipto","Iran":"RI de Irán","New Zealand":"Nueva Zelanda",
-  "Spain":"España","Cape Verde":"Cabo Verde","Saudi Arabia":"Arabia Saudí","Uruguay":"Uruguay",
-  "France":"Francia","Senegal":"Senegal","Iraq":"Irak","Norway":"Noruega",
-  "Argentina":"Argentina","Algeria":"Argelia","Austria":"Austria","Jordan":"Jordania",
-  "Portugal":"Portugal","DR Congo":"RD de Congo","Congo DR":"RD de Congo",
-  "Uzbekistan":"Uzbekistán","Colombia":"Colombia","England":"Inglaterra",
-  "Croatia":"Croacia","Ghana":"Ghana","Panama":"Panamá"
+  // Grupos (nombres exactos de openfootball)
+  "Mexico":"México",
+  "South Africa":"Sudáfrica",
+  "South Korea":"República de Corea",
+  "Czech Republic":"República Checa",
+  "Canada":"Canadá",
+  "Bosnia & Herzegovina":"Bosnia y Herzegovina",
+  "Bosnia and Herzegovina":"Bosnia y Herzegovina",
+  "Bosnia":"Bosnia y Herzegovina",
+  "Qatar":"Catar",
+  "Switzerland":"Suiza",
+  "Brazil":"Brasil",
+  "Morocco":"Marruecos",
+  "Haiti":"Haití",
+  "Scotland":"Escocia",
+  "USA":"Estados Unidos",
+  "United States":"Estados Unidos",
+  "Paraguay":"Paraguay",
+  "Australia":"Australia",
+  "Turkey":"Turquía",
+  "Germany":"Alemania",
+  "Curaçao":"Curazao",
+  "Curacao":"Curazao",
+  "Ivory Coast":"Costa de Marfil",
+  "Côte d'Ivoire":"Costa de Marfil",
+  "Cote d'Ivoire":"Costa de Marfil",
+  "Ecuador":"Ecuador",
+  "Netherlands":"Países Bajos",
+  "Japan":"Japón",
+  "Sweden":"Suecia",
+  "Tunisia":"Túnez",
+  "Belgium":"Bélgica",
+  "Egypt":"Egipto",
+  "Iran":"RI de Irán",
+  "New Zealand":"Nueva Zelanda",
+  "Spain":"España",
+  "Cape Verde":"Cabo Verde",
+  "Saudi Arabia":"Arabia Saudí",
+  "Uruguay":"Uruguay",
+  "France":"Francia",
+  "Senegal":"Senegal",
+  "Iraq":"Irak",
+  "Norway":"Noruega",
+  "Argentina":"Argentina",
+  "Algeria":"Argelia",
+  "Austria":"Austria",
+  "Jordan":"Jordania",
+  "Portugal":"Portugal",
+  "DR Congo":"RD de Congo",
+  "Congo DR":"RD de Congo",
+  "Uzbekistan":"Uzbekistán",
+  "Colombia":"Colombia",
+  "England":"Inglaterra",
+  "Croatia":"Croacia",
+  "Ghana":"Ghana",
+  "Panama":"Panamá"
 };
 
 function apiTeamName(n) { return API_TEAM_MAP[n] || n; }
@@ -347,58 +388,51 @@ async function syncResults() {
     const data = await res.json();
     if (data.error) { toast("❌ Error: " + data.error, false); return; }
 
-    // openfootball format: { rounds: [ { matches: [ { team1, team2, score, group } ] } ] }
-    const rounds = data.rounds || [];
-    const patch  = {};
-    let count    = 0;
+    // openfootball formato real: { matches: [ { round, date, team1, team2, score: { ft: [g1,g2] }, group } ] }
+    // team1/team2 son strings directos, no objetos
+    const matches = data.matches || [];
+    const patch   = {};
+    let count     = 0;
 
-    for (const round of rounds) {
-      for (const match of (round.matches || [])) {
-        // Solo partidos con resultado
-        if (!match.score || !match.score.ft) continue;
+    for (const match of matches) {
+      if (!match.score || !match.score.ft) continue; // sin resultado todavía
 
-        const homeEs = apiTeamName(match.team1?.name || "");
-        const awayEs = apiTeamName(match.team2?.name || "");
-        if (!homeEs || !awayEs) continue;
+      const homeEs = apiTeamName(typeof match.team1 === "string" ? match.team1 : match.team1?.name || "");
+      const awayEs = apiTeamName(typeof match.team2 === "string" ? match.team2 : match.team2?.name || "");
+      if (!homeEs || !awayEs) continue;
 
-        const found = findMid(homeEs, awayEs);
-        if (!found) continue;
+      const found = findMid(homeEs, awayEs);
+      if (!found) continue;
 
-        const { mid, swapped } = found;
-        const ft = match.score.ft; // [golesLocal, golesVisitante]
-        const h  = swapped ? ft[1] : ft[0];
-        const a  = swapped ? ft[0] : ft[1];
-        const ph = getMatchPhase(mid);
+      const { mid, swapped } = found;
+      const ft = match.score.ft;
+      const h  = swapped ? ft[1] : ft[0];
+      const a  = swapped ? ft[0] : ft[1];
+      const ph = getMatchPhase(mid);
 
-        if (ph === 0) {
-          // Grupos: solo goles
-          patch[`results/${mid}`] = { home: h, away: a, qualified: null };
+      if (ph === 0) {
+        patch[`results/${mid}`] = { home: h, away: a, qualified: null };
+      } else {
+        const hasPen = !!(match.score.p);
+        const hasET  = !!(match.score.et);
+        const extras = hasPen || hasET;
+        let qualified = null;
+        if (hasPen) {
+          const pen = match.score.p;
+          const ph_ = swapped ? pen[1] : pen[0];
+          const pa_ = swapped ? pen[0] : pen[1];
+          qualified  = ph_ > pa_ ? homeEs : awayEs;
+        } else if (hasET) {
+          const et  = match.score.et;
+          const eth = swapped ? et[1] : et[0];
+          const eta = swapped ? et[0] : et[1];
+          qualified  = eth > eta ? homeEs : awayEs;
         } else {
-          // Eliminatorias: detectar prórroga/penales
-          // openfootball incluye score.et (extratime) y score.p (penales)
-          const hasPen = !!(match.score.p);
-          const hasET  = !!(match.score.et);
-          const extras = hasPen || hasET;
-
-          let qualified = null;
-          if (hasPen) {
-            const pen = match.score.p;
-            const ph_ = swapped ? pen[1] : pen[0];
-            const pa_ = swapped ? pen[0] : pen[1];
-            qualified  = ph_ > pa_ ? homeEs : awayEs;
-          } else if (hasET) {
-            const et  = match.score.et;
-            const eth = swapped ? et[1] : et[0];
-            const eta = swapped ? et[0] : et[1];
-            qualified = eth > eta ? homeEs : awayEs;
-          } else {
-            qualified = h > a ? homeEs : awayEs;
-          }
-
-          patch[`results/${mid}`] = { home: h, away: a, penales: extras, qualified };
+          qualified = h > a ? homeEs : awayEs;
         }
-        count++;
+        patch[`results/${mid}`] = { home: h, away: a, penales: extras, qualified };
       }
+      count++;
     }
 
     if (!count) { toast("ℹ️ No hay resultados nuevos todavía"); return; }
