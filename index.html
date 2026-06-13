@@ -436,7 +436,7 @@ async function syncResults() {
     }
 
     if (!count) { toast("ℹ️ No hay resultados nuevos todavía"); return; }
-    await fbUpdate("", patch);
+    await fbUpdate("/", patch);
     toast(`✅ ${count} resultado${count > 1 ? "s" : ""} sincronizado${count > 1 ? "s" : ""}`);
   } catch(e) {
     console.error(e);
@@ -527,7 +527,7 @@ async function fbSet(path, val) {
   await set(ref(db, path), val);
 }
 async function fbUpdate(path, patch) {
-  await update(ref(db, path), patch);
+  await update(ref(db, path || "/"), patch);
 }
 
 // ── LOGIC ─────────────────────────────────────────────────────────────────────
