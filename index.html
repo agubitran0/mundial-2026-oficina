@@ -394,9 +394,57 @@ async function syncResults() {
     const patch   = {};
     let count     = 0;
 
-    for (const match of matches) {
+    // Mapa de número de partido openfootball → ID en nuestra app
+    const OFB_NUM_TO_MID = {
+      73:"R32_73",74:"R32_74",75:"R32_75",76:"R32_76",
+      77:"R32_77",78:"R32_78",79:"R32_79",80:"R32_80",
+      81:"R32_81",82:"R32_82",83:"R32_83",84:"R32_84",
+      85:"R32_85",86:"R32_86",87:"R32_87",88:"R32_88",
+      89:"R16_89",90:"R16_90",91:"R16_91",92:"R16_92",
+      93:"R16_93",94:"R16_94",95:"R16_95",96:"R16_96",
+      97:"QF_97",98:"QF_98",99:"QF_99",100:"QF_100",
+      101:"SF_101",102:"SF_102",103:"3RD",104:"FIN"
+    };
+
+        for (const match of matches) {
       if (!match.score || !match.score.ft) continue; // sin resultado todavía
 
+      // Partidos KO: asignar equipos aunque no tengan resultado aún
+      if (match.num && OFB_NUM_TO_MID[match.num]) {
+        const mid = OFB_NUM_TO_MID[match.num];
+        const t1  = typeof match.team1 === "string" ? match.team1 : match.team1?.name || "";
+        const t2  = typeof match.team2 === "string" ? match.team2 : match.team2?.name || "";
+        const homeEs = apiTeamName(t1);
+        const awayEs = apiTeamName(t2);
+        // Solo cargar si los equipos ya se conocen (no son códigos como "2A", "W73")
+        const isReal = t => t && !t.match(/^[0-9]|^W|^L/);
+        if (isReal(t1) && isReal(t2)) {
+          patch[`knockoutMatches/${mid}/home`] = homeEs;
+          patch[`knockoutMatches/${mid}/away`] = awayEs;
+        }
+        // Si tiene resultado, cargarlo también
+        if (match.score?.ft) {
+          const ft     = match.score.ft;
+          const hasPen = !!(match.score.p);
+          const hasET  = !!(match.score.et);
+          const extras = hasPen || hasET;
+          let qualified = null;
+          if (hasPen) {
+            const pen = match.score.p;
+            qualified = pen[0] > pen[1] ? homeEs : awayEs;
+          } else if (hasET) {
+            const et = match.score.et;
+            qualified = et[0] > et[1] ? homeEs : awayEs;
+          } else {
+            qualified = ft[0] > ft[1] ? homeEs : awayEs;
+          }
+          patch[`results/${mid}`] = { home: ft[0], away: ft[1], penales: extras, qualified };
+          count++;
+        }
+        continue;
+      }
+
+      // Partidos de grupos
       const homeEs = apiTeamName(typeof match.team1 === "string" ? match.team1 : match.team1?.name || "");
       const awayEs = apiTeamName(typeof match.team2 === "string" ? match.team2 : match.team2?.name || "");
       if (!homeEs || !awayEs) continue;
@@ -408,30 +456,8 @@ async function syncResults() {
       const ft = match.score.ft;
       const h  = swapped ? ft[1] : ft[0];
       const a  = swapped ? ft[0] : ft[1];
-      const ph = getMatchPhase(mid);
 
-      if (ph === 0) {
-        patch[`results/${mid}`] = { home: h, away: a, qualified: null };
-      } else {
-        const hasPen = !!(match.score.p);
-        const hasET  = !!(match.score.et);
-        const extras = hasPen || hasET;
-        let qualified = null;
-        if (hasPen) {
-          const pen = match.score.p;
-          const ph_ = swapped ? pen[1] : pen[0];
-          const pa_ = swapped ? pen[0] : pen[1];
-          qualified  = ph_ > pa_ ? homeEs : awayEs;
-        } else if (hasET) {
-          const et  = match.score.et;
-          const eth = swapped ? et[1] : et[0];
-          const eta = swapped ? et[0] : et[1];
-          qualified  = eth > eta ? homeEs : awayEs;
-        } else {
-          qualified = h > a ? homeEs : awayEs;
-        }
-        patch[`results/${mid}`] = { home: h, away: a, penales: extras, qualified };
-      }
+      patch[`results/${mid}`] = { home: h, away: a, qualified: null };
       count++;
     }
 
@@ -459,11 +485,49 @@ function initMatchMaps() {
 function mkKnockout() {
   const ko = {};
   const add = (id, phase, label) => { ko[id] = { id, phase, home:"TBD", away:"TBD", label }; };
-  for (let i = 0; i < 32; i++) add(`R32_${i}`, 1, `Dieciseisavos #${i+1}`);
-  for (let i = 0; i < 16; i++) add(`R16_${i}`, 2, `Octavos #${i+1}`);
-  for (let i = 0; i < 8; i++)  add(`QF_${i}`,  3, `Cuartos de final #${i+1}`);
-  add("SF_0", 4, "Semifinal 1"); add("SF_1", 4, "Semifinal 2");
-  add("3RD",  5, "Tercer Puesto"); add("FIN", 6, "FINAL 🏆");
+
+  // 16avos (Round of 32) — 16 partidos según el fixture oficial
+  add("R32_73",  1, "16avos #1: 2A vs 2B");
+  add("R32_74",  1, "16avos #2: 1E vs 3°");
+  add("R32_75",  1, "16avos #3: 1F vs 2C");
+  add("R32_76",  1, "16avos #4: 1C vs 2F");
+  add("R32_77",  1, "16avos #5: 1I vs 3°");
+  add("R32_78",  1, "16avos #6: 2E vs 2I");
+  add("R32_79",  1, "16avos #7: 1A vs 3°");
+  add("R32_80",  1, "16avos #8: 1L vs 3°");
+  add("R32_81",  1, "16avos #9: 1D vs 3°");
+  add("R32_82",  1, "16avos #10: 1G vs 3°");
+  add("R32_83",  1, "16avos #11: 2K vs 2L");
+  add("R32_84",  1, "16avos #12: 1H vs 2J");
+  add("R32_85",  1, "16avos #13: 1B vs 3°");
+  add("R32_86",  1, "16avos #14: 1J vs 2H");
+  add("R32_87",  1, "16avos #15: 1K vs 3°");
+  add("R32_88",  1, "16avos #16: 2D vs 2G");
+
+  // Octavos (Round of 16) — 8 partidos
+  add("R16_89",  2, "Octavos #1");
+  add("R16_90",  2, "Octavos #2");
+  add("R16_91",  2, "Octavos #3");
+  add("R16_92",  2, "Octavos #4");
+  add("R16_93",  2, "Octavos #5");
+  add("R16_94",  2, "Octavos #6");
+  add("R16_95",  2, "Octavos #7");
+  add("R16_96",  2, "Octavos #8");
+
+  // Cuartos
+  add("QF_97",   3, "Cuartos #1");
+  add("QF_98",   3, "Cuartos #2");
+  add("QF_99",   3, "Cuartos #3");
+  add("QF_100",  3, "Cuartos #4");
+
+  // Semis
+  add("SF_101",  4, "Semifinal 1");
+  add("SF_102",  4, "Semifinal 2");
+
+  // 3er puesto y Final
+  add("3RD",     5, "Tercer Puesto");
+  add("FIN",     6, "FINAL 🏆");
+
   return ko;
 }
 
