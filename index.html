@@ -571,18 +571,21 @@ function syncFirebase() {
     S.closedBets      = d.closedBets ? Object.values(d.closedBets) : [];
     S.results         = d.results || {};
     S.bets            = d.bets || {};
-    // Merge Firebase KO data with defaults (preserves hardcoded teams if Firebase has TBD)
+    // Merge Firebase KO data con defaults hardcodeados
     const defaultKO = mkKnockout();
     const fbKO = d.knockoutMatches || {};
     S.knockoutMatches = {};
+    const fbPatch = {};
     for (const [id, def] of Object.entries(defaultKO)) {
       const fb = fbKO[id] || {};
-      S.knockoutMatches[id] = {
-        ...def,
-        home: (fb.home && fb.home !== "TBD") ? fb.home : def.home,
-        away: (fb.away && fb.away !== "TBD") ? fb.away : def.away,
-      };
+      const home = (fb.home && fb.home !== "TBD") ? fb.home : def.home;
+      const away = (fb.away && fb.away !== "TBD") ? fb.away : def.away;
+      S.knockoutMatches[id] = { ...def, home, away };
+      // Si Firebase tiene TBD pero el código tiene equipos reales, actualizar Firebase
+      if (def.home !== "TBD" && (fb.home === "TBD" || !fb.home)) fbPatch[`knockoutMatches/${id}/home`] = def.home;
+      if (def.away !== "TBD" && (fb.away === "TBD" || !fb.away)) fbPatch[`knockoutMatches/${id}/away`] = def.away;
     }
+    if (Object.keys(fbPatch).length > 0) fbUpdate("/", fbPatch);
     initMatchMaps();
     document.getElementById("loader").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
