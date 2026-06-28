@@ -484,25 +484,25 @@ function initMatchMaps() {
 
 function mkKnockout() {
   const ko = {};
-  const add = (id, phase, label) => { ko[id] = { id, phase, home:"TBD", away:"TBD", label }; };
+  const add = (id, phase, label, home="TBD", away="TBD") => { ko[id] = { id, phase, home, away, label }; };
 
-  // 16avos (Round of 32) — 16 partidos según el fixture oficial
-  add("R32_73",  1, "16avos #1: 2A vs 2B");
-  add("R32_74",  1, "16avos #2: 1E vs 3°");
-  add("R32_75",  1, "16avos #3: 1F vs 2C");
-  add("R32_76",  1, "16avos #4: 1C vs 2F");
-  add("R32_77",  1, "16avos #5: 1I vs 3°");
-  add("R32_78",  1, "16avos #6: 2E vs 2I");
-  add("R32_79",  1, "16avos #7: 1A vs 3°");
-  add("R32_80",  1, "16avos #8: 1L vs 3°");
-  add("R32_81",  1, "16avos #9: 1D vs 3°");
-  add("R32_82",  1, "16avos #10: 1G vs 3°");
-  add("R32_83",  1, "16avos #11: 2K vs 2L");
-  add("R32_84",  1, "16avos #12: 1H vs 2J");
-  add("R32_85",  1, "16avos #13: 1B vs 3°");
-  add("R32_86",  1, "16avos #14: 1J vs 2H");
-  add("R32_87",  1, "16avos #15: 1K vs 3°");
-  add("R32_88",  1, "16avos #16: 2D vs 2G");
+  // 16avos — equipos precargados
+  add("R32_73",  1, "16avos #1",  "Sudáfrica",        "Canadá");
+  add("R32_74",  1, "16avos #2",  "Alemania",         "Paraguay");
+  add("R32_75",  1, "16avos #3",  "Países Bajos",     "Marruecos");
+  add("R32_76",  1, "16avos #4",  "Brasil",           "Japón");
+  add("R32_77",  1, "16avos #5",  "Francia",          "Suecia");
+  add("R32_78",  1, "16avos #6",  "Costa de Marfil",  "Noruega");
+  add("R32_79",  1, "16avos #7",  "México",           "Ecuador");
+  add("R32_80",  1, "16avos #8",  "Inglaterra",       "RD de Congo");
+  add("R32_81",  1, "16avos #9",  "Estados Unidos",   "Bosnia y Herzegovina");
+  add("R32_82",  1, "16avos #10", "Bélgica",          "Senegal");
+  add("R32_83",  1, "16avos #11", "Colombia",         "Ghana");
+  add("R32_84",  1, "16avos #12", "España",           "Austria");
+  add("R32_85",  1, "16avos #13", "Suiza",            "Argelia");
+  add("R32_86",  1, "16avos #14", "Argentina",        "Cabo Verde");
+  add("R32_87",  1, "16avos #15", "Portugal",         "Croacia");
+  add("R32_88",  1, "16avos #16", "Australia",        "Egipto");
 
   // Octavos (Round of 16) — 8 partidos
   add("R16_89",  2, "Octavos #1");
@@ -571,7 +571,18 @@ function syncFirebase() {
     S.closedBets      = d.closedBets ? Object.values(d.closedBets) : [];
     S.results         = d.results || {};
     S.bets            = d.bets || {};
-    S.knockoutMatches = d.knockoutMatches || mkKnockout();
+    // Merge Firebase KO data with defaults (preserves hardcoded teams if Firebase has TBD)
+    const defaultKO = mkKnockout();
+    const fbKO = d.knockoutMatches || {};
+    S.knockoutMatches = {};
+    for (const [id, def] of Object.entries(defaultKO)) {
+      const fb = fbKO[id] || {};
+      S.knockoutMatches[id] = {
+        ...def,
+        home: (fb.home && fb.home !== "TBD") ? fb.home : def.home,
+        away: (fb.away && fb.away !== "TBD") ? fb.away : def.away,
+      };
+    }
     initMatchMaps();
     document.getElementById("loader").classList.add("hidden");
     document.getElementById("app").classList.remove("hidden");
